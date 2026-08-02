@@ -131,12 +131,14 @@ The same curve math has been ported to:
 | **Audiocular-Aura** (`src/peq.ts`) | `buildBiquadCurve` + `biquadSection` / `biquadMagnitudeDb` (PK, NOTCH, LSQ/LSC, HSQ/HSC; 48 kHz) |
 | **fiiocontrol-oss** (`src/App.jsx`) | summed `getBiquadMagnitude` over the bands (PK/LSC/HSC; 48 kHz) |
 
-> **Quirk in the original app**: the small `eq-chart-mini` preview inside
-> `eq-bands-card` passes the *raw band list* (`{filterType, frequency, gain, qValue}`)
-> straight into `a6e`, which expects biquad sections (`{a0,a1,a2,b0,b1,b2}`), so
-> that preview does **not** render a valid curve. The main editor chart — the
-> canonical `myChart` curve — correctly builds `[identity, ...rX(bands)]` and
-> feeds it to `a6e`; that is exactly what the ports above reproduce.
+> **Fixed quirk (patch in the vendored bundle)**: the small `eq-chart-mini`
+> preview inside `eq-bands-card` used to pass the *raw band list*
+> (`{filterType, frequency, gain, qValue}`) straight into `a6e`, which expects
+> biquad sections (`{a0,a1,a2,b0,b1,b2}`), so that preview rendered no valid
+> curve (NaN). `public/static/js/eq-bands-card-CTGfWnlO.js` is patched so the
+> mini-chart now maps each raw band to an identity-prepended RBJ section (the
+> same math as the main editor chart) before calling `a6e`. Verified
+> bit-identical to the reference (max error 0 dB).
 
 ## Remote hidws backend (optional)
 
