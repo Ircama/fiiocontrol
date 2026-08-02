@@ -67,6 +67,21 @@
     ws.send(JSON.stringify(obj));
   }
 
+  /* DEBUG: log every report to window.__fiioHidwsLog + console (dev aid).
+   * Enable with localStorage.setItem('fiio_hidws_debug','1') before load. */
+  var DBG = false;
+  try { DBG = localStorage.getItem('fiio_hidws_debug') === '1'; } catch (e) {}
+  window.__fiioHidwsLog = window.__fiioHidwsLog || [];
+  function dbg(ev) {
+    if (!DBG) return;
+    window.__fiioHidwsLog.push(ev);
+    try { console.log('[hidws]', ev); } catch (e) {}
+  }
+  function hex(arr) {
+    var a = Array.from(arr || []);
+    return a.map(function (b) { return (b & 0xff).toString(16).padStart(2, '0'); }).join(' ');
+  }
+
   /* ------------------------------------------------------------------ *
    * RemoteHIDDevice — mimics the WebHID HIDDevice interface over the
    * hidws WebSocket, so the FiiO app treats it like a local device.
@@ -94,11 +109,13 @@
   };
 
   RemoteHIDDevice.prototype.sendReport = function (reportId, data) {
+    dbg({ dir: 'tx', kind: 'send_report', reportId: reportId || 0, data: Array.from(toBytes(data)), hex: hex(data) });
     remoteSendJson(this._ws, { cmd: 'send_report', reportId: reportId || 0, data: Array.from(toBytes(data)) });
     return Promise.resolve();
   };
 
   RemoteHIDDevice.prototype.sendFeatureReport = function (reportId, data) {
+    dbg({ dir: 'tx', kind: 'send_feature_report', reportId: reportId || 0, data: Array.from(toBytes(data)), hex: hex(data) });
     remoteSendJson(this._ws, { cmd: 'send_feature_report', reportId: reportId || 0, data: Array.from(toBytes(data)) });
     return Promise.resolve();
   };
@@ -131,6 +148,7 @@
 
     var buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     var event = { reportId: reportId, data: new DataView(buffer) };
+    dbg({ dir: 'rx', kind: 'input_report', reportId: reportId, rawHex: hex(rawData), strippedHex: hex(bytes), len: bytes.length, listeners: (this._handlers.get('inputreport') || new Set()).size });
 
     var set = this._handlers.get('inputreport');
     if (set) {
@@ -147,10 +165,25 @@
   /* ------------------------------------------------------------------ *
    * Transport: list / open on the hidws backend
    * ------------------------------------------------------------------ */
+  // Turn low-level WebSocket errors into actionable hints. The big one:
+  // GitHub Pages is HTTPS, so the browser blocks an insecure `ws://` LAN URL
+  // (mixed content) before any connection is attempted.
+  function friendlyWsError(err, url) {
+    var name = err && err.name;
+    var msg = err && err.message ? String(err.message) : '';
+    var insecure = name === 'SecurityError' || /insecure WebSocket/i.test(msg) || /mixed content/i.test(msg);
+    if (insecure) {
+      return 'Blocked by the browser (mixed content): this page is HTTPS but the backend URL "' + url + '" is not secure. ' +
+        'Fix: use ws://localhost:9001 (backend on this PC) OR expose the backend over wss://, ' +
+        'OR open this app from http://localhost (or an http:// server on the LAN) instead of the https:// GitHub Pages site.';
+    }
+    return msg || (name || 'WebSocket error');
+  }
+
   function listRemoteDevices(url) {
     return new Promise(function (resolve, reject) {
       var ws;
-      try { ws = new WebSocket(url); } catch (e) { reject(e); return; }
+      try { ws = new WebSocket(url); } catch (e) { reject(new Error(friendlyWsError(e, url))); return; }
       var timeout = setTimeout(function () { try { ws.close(); } catch (e) {} reject(new Error('Connection timeout')); }, OPEN_TIMEOUT_MS);
 
       ws.onopen = function () { clearTimeout(timeout); remoteSendJson(ws, { cmd: 'list' }); };
@@ -169,7 +202,7 @@
   function openRemoteDevice(url, vendorId, productId, onClosed) {
     return new Promise(function (resolve, reject) {
       var ws;
-      try { ws = new WebSocket(url); } catch (e) { reject(e); return; }
+      try { ws = new WebSocket(url); } catch (e) { reject(new Error(friendlyWsError(e, url))); return; }
       var timeout = setTimeout(function () { try { ws.close(); } catch (e) {} reject(new Error('Connection timeout')); }, OPEN_TIMEOUT_MS);
 
       ws.onopen = function () {
