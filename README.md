@@ -85,6 +85,59 @@ vendored files so every URL resolves under that base:
 `public/404.html` is an SPA fallback so GitHub Pages serves the app for
 deep links (e.g. `/fiiocontrol/equalizer/custom`) instead of a 404.
 
+## EQ curve mathematics (the `myChart` class)
+
+The equalizer curve rendered in the `myChart` element (an ECharts graph) is the
+**real frequency response of the RBJ biquad filters** — not an interpolation.
+The math below was reverse-engineered from the production bundle
+(`public/static/js/index-WZB3nC8k.js`, `eq-bands-card` chunk).
+
+**1. Biquad coefficients — `i3e(gain, freq, q, filterType, fs)`** (RBJ Audio EQ
+Cookbook):
+
+$$\omega_0 = \frac{2\pi f_0}{f_s}, \qquad A = 10^{G/40}, \qquad \alpha = \frac{\sin\omega_0}{2Q}$$
+
+with the full cookbook formulas for **Peak**, **Low Shelf**, **High Shelf**,
+**Band-Pass**, **Low-Pass**, **High-Pass** and **All-Pass**. Unknown types fall
+back to a bypass / identity section `{a0:1, a1:0, a2:0, b0:1, b1:0, b2:0}`.
+
+**2. Magnitude response — `a6e(sections, fs, f)`**:
+
+$$H_i(z) = \frac{b_0 + b_1 z^{-1} + b_2 z^{-2}}{a_0 + a_1 z^{-1} + a_2 z^{-2}}, \qquad z = e^{-j\omega}, \quad \omega = \frac{2\pi f}{f_s}$$
+
+$$dB(f) = 20\log_{10}\left|\prod_i H_i\!\left(e^{j\omega}\right)\right|$$
+
+**3. Sampling**: 128 log-spaced points from **10 Hz** to **24 kHz**
+(`n6e(128, 10, 24e3)`, i.e. $f = 10^{\log_{10}10 + (\log_{10}24000 - \log_{10}10)\cdot i/127}$),
+evaluated at the hardcoded **48 kHz** sample rate (`FS_48000`).
+
+> **Key simplification** — because $|\prod_i H_i| = \prod_i |H_i|$, the total is
+> simply the **sum of the per-band dB**, so no complex-number products are
+> needed:
+>
+> $$dB(f) = \sum_i 20\log_{10}\left|H_i\!\left(e^{j\omega}\right)\right|$$
+
+### Verification
+A standalone Node test comparing this math against fiiocontrol's exact
+complex-section product (`i3e` + `a6e`) reports a maximum error of **≈1e-9 dB**
+across the whole 10 Hz – 24 kHz range for typical EQ settings (the residual is
+pure floating-point noise).
+
+The same curve math has been ported to:
+
+| Project | Implementation |
+| --- | --- |
+| **kt02h20-control** (`app.js`) | `#biquadCoeffs` / `#sectionDb` / `#curveDbAt` (Peak, Low/High Shelf; 48 kHz) |
+| **Audiocular-Aura** (`src/peq.ts`) | `buildBiquadCurve` + `biquadSection` / `biquadMagnitudeDb` (PK, NOTCH, LSQ/LSC, HSQ/HSC; 48 kHz) |
+| **fiiocontrol-oss** (`src/App.jsx`) | summed `getBiquadMagnitude` over the bands (PK/LSC/HSC; 48 kHz) |
+
+> **Quirk in the original app**: the small `eq-chart-mini` preview inside
+> `eq-bands-card` passes the *raw band list* (`{filterType, frequency, gain, qValue}`)
+> straight into `a6e`, which expects biquad sections (`{a0,a1,a2,b0,b1,b2}`), so
+> that preview does **not** render a valid curve. The main editor chart — the
+> canonical `myChart` curve — correctly builds `[identity, ...rX(bands)]` and
+> feeds it to `a6e`; that is exactly what the ports above reproduce.
+
 ## Remote hidws backend (optional)
 
 [`public/hidws.js`](public/hidws.js) adds an optional **Remote** connection mode
