@@ -1,0 +1,1 @@
+import{q as o,p as s,D as e}from"./index-WZB3nC8k.js";const r=new Set([e.FIIO_FP3,e.FIIO_FX17,e.FIIO_LS_TC2,e.OAK_NANO,e.FIIO_FX25,e.FIIO_AIR_LINK,e.FIIO_BT11]),I=t=>!r.has(t),F=()=>{const t=o();return s(()=>I(t.productName))};export{F as u};

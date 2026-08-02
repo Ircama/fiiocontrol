@@ -1,0 +1,103 @@
+# FiiO Control (Equalizer / Custom) — offline Vue/Vite build
+
+This repository is a self-contained, offline copy of the FiiO Control web app
+(`https://fiiocontrol.fiio.com/equalizer/custom`) wrapped in a **Vue 3 + Vite**
+project so it can be run locally in VS Code and deployed to **GitHub Pages**.
+
+The app lets you control FiiO USB DACs / headphones (equalizer presets, firmware
+update, etc.) directly in the browser. **A real FiiO device connected over USB /
+WebHID is required to use most functions** — the welcome / device-connection
+flow is part of the original app.
+
+## Stack
+
+- [Vite](https://vitejs.dev/) (project scaffold and build, inspired by the
+  [Audiocular-Aura](https://github.com/mandy321/Audiocular-Aura) setup)
+- [Vue 3](https://vuejs.org/) + Element Plus (the original app is a Vue 3 SPA)
+- The application itself is the **prebuilt production bundle** extracted from
+  fiiocontrol.fiio.com (all lazy-loaded chunks, CSS, images, sounds and
+  firmware `.bin` files are vendored under `public/static/`).
+
+## Getting started
+
+```bash
+npm install        # install Vite / Vue toolchain
+npm run dev        # start the dev server
+```
+
+Then open **http://localhost:5173/fiiocontrol/** (the base path mirrors the
+production URL `https://ircama.github.io/fiiocontrol/`).
+
+## Build
+
+```bash
+npm run build      # outputs a static site in dist/
+npm run preview    # serve the production build locally
+```
+
+The `dist/` folder is a fully static site that can be hosted anywhere.
+
+## Deploy to GitHub Pages
+
+Pushing to `main` triggers
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which runs
+`npm ci && npm run build` and publishes `dist/` via GitHub Pages
+(`https://ircama.github.io/fiiocontrol/`).
+
+To enable it:
+
+1. Go to **Settings → Pages** of the repository.
+2. Under *Build and deployment → Source* select **GitHub Actions**.
+3. Push to `main` (or run the workflow manually via *Actions*).
+
+## How the offline copy was made
+
+The production bundle is lazy-loaded, so a simple "Save As" of `index.html` is
+**not enough**. The complete set of assets was fetched from
+`https://fiiocontrol.fiio.com/`:
+
+| Directory            | Contents                                              |
+| -------------------- | ----------------------------------------------------- |
+| `public/static/js/`  | main bundle + 55 lazy-loaded route/shared chunks      |
+| `public/static/css/` | main stylesheet + 33 route-specific stylesheets       |
+| `public/static/png/` | product images, logos, banners                        |
+| `public/static/wav/` | sweep-frequency tone (room EQ)                        |
+| `public/static/bin/` | official device firmware files (firmware update page) |
+| `public/FiiO.ico`    | favicon                                               |
+
+The prebuilt bundle expects to be served from a domain root, but this project
+is deployed under `/fiiocontrol/`. Three surgical patches were applied to the
+vendored files so every URL resolves under that base:
+
+1. **Vue Router base** — `createWebHistory("/")` → `createWebHistory("/fiiocontrol/")`
+   (in `public/static/js/index-WZB3nC8k.js`).
+2. **Chunk/CSS preload resolver** — `Yve=function(e){return"/"+e}` →
+   `Yve=function(e){return"/fiiocontrol/"+e}` so lazy chunks and their CSS are
+   preloaded from the correct base.
+3. **Root-relative asset literals** — every quoted `/static/...` string
+   (images, sounds, firmware `.bin`) → `/fiiocontrol/static/...`.
+
+> If the repository is renamed (or deployed to a custom domain), the base path
+> `/fiiocontrol/` must be updated in **three places**: `vite.config.js`,
+> `public/static/js/index-WZB3nC8k.js` (the two patches above) and
+> `public/404.html` / `index.html`.
+
+`public/404.html` is an SPA fallback so GitHub Pages serves the app for
+deep links (e.g. `/fiiocontrol/equalizer/custom`) instead of a 404.
+
+## Known limitations
+
+- **No backend**: the original app talks to `fiiocontrol.fiio.com` API
+  endpoints (login, cloud presets, etc.). Those calls are not available offline
+  and will fail gracefully; local-device (WebHID) features do not depend on
+  them.
+- **WebHID**: a WebHID-capable browser (Chrome / Edge / Opera) and a connected
+  FiiO device are required for device control.
+- Navigating straight to a deep route redirects to the **Welcome** screen —
+  that is the original app's "connect your device first" flow.
+
+## License
+
+The original FiiO Control web application and its assets are © FiiO Electronics
+Technology Co., Ltd. This repository only vendors them for offline testing /
+study purposes; do not redistribute commercially.
