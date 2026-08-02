@@ -413,13 +413,15 @@
     // --- "Remote" radio item (mirrors the native el-radio items) ---
     var radioItem = makeElement('div', { class: 'radio-item fh-radio-item' }, '');
     var label = makeElement('label', { class: 'el-radio el-radio--large fh-remote-radio' }, '');
+    var inputSpan = makeElement('span', { class: 'el-radio__input' }, '');
     var input = makeElement('input', { type: 'radio', class: 'el-radio__original fh-remote-original', name: 'fh-remote-mode', value: '2' }, '');
     var inner = makeElement('span', { class: 'el-radio__inner' }, '');
     var labelWrap = makeElement('span', { class: 'el-radio__label' }, '');
     var textSpan = makeElement('span', { class: 'el-text connect-radio-label' }, 'Remote');
     labelWrap.appendChild(textSpan);
-    label.appendChild(input);
-    label.appendChild(inner);
+    inputSpan.appendChild(input);
+    inputSpan.appendChild(inner);
+    label.appendChild(inputSpan);
     label.appendChild(labelWrap);
     radioItem.appendChild(label);
     var desc = makeElement('div', { class: 'dialog-content-desc fh-remote-desc' }, 'Remote backend (hidws) over WebSocket');
@@ -434,6 +436,7 @@
     ui = {
       radioItem: radioItem,
       radioInput: input,
+      radioInputSpan: inputSpan,
       radioLabel: label,
       cfg: parts.cfg,
       urlInput: parts.urlInput,
@@ -472,6 +475,7 @@
     var remote = state.mode === 'remote';
     ui.radioInput.checked = remote;
     ui.radioLabel.classList.toggle('is-checked', remote);
+    ui.radioInputSpan.classList.toggle('is-checked', remote);
     ui.cfg.style.display = remote ? 'block' : 'none';
     ui.urlInput.value = state.url;
     if (dialogRoot) dialogRoot.classList.toggle('fh-remote-active', remote);
@@ -498,6 +502,8 @@
   style.textContent = [
     '.el-dialog .dialog-content .fh-radio-item { cursor:pointer; }',
     '.el-dialog .dialog-content.fh-remote-active .radio-item:not(.fh-radio-item) { opacity:.45; }',
+    '.el-dialog .dialog-content.fh-remote-active .radio-item:not(.fh-radio-item) .el-radio.is-checked .el-radio__inner { border-color:var(--el-radio-input-border-color,#dcdfe6) !important; background:var(--el-radio-input-bg-color,#fff) !important; }',
+    '.el-dialog .dialog-content.fh-remote-active .radio-item:not(.fh-radio-item) .el-radio__inner::after { transform:scale(0) !important; }',
     '.fh-remote-config { margin-top:10px; padding:10px; border:1px solid rgba(128,128,128,.25); border-radius:8px; display:flex; flex-direction:column; gap:8px; }',
     '.fh-remote-label { font-size:13px; color:var(--el-text-color-secondary, #909399); }',
     '.fh-remote-row { display:flex; gap:8px; align-items:center; }',
