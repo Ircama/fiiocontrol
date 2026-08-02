@@ -5,8 +5,8 @@
  * backend (https://github.com/Ircama/hidws) instead of (or in addition to)
  * WebHID, mirroring the remote transport of kt02h20-control / Audiocular-Aura.
  *
- * When the widget is set to "Remote" mode, `navigator.hid` is transparently
- * proxied so the (prebuilt) FiiO app keeps working unchanged: requestDevice(),
+ * When the dialog's "Remote" option is selected, `navigator.hid` is
+ * transparently proxied so the (prebuilt) FiiO app keeps working unchanged: requestDevice(),
  * open(), sendReport(), sendFeatureReport() and inputreport events are all
  * forwarded to the hidws backend over WebSocket. Local (USB / WebHID) mode
  * falls back to the browser's real WebHID API.
@@ -27,7 +27,11 @@
  * - hidws forwards the raw hid_read buffer in input_report. For numbered input
  *   reports the first byte is the report ID; WebHID strips it. Set
  *   STRIP_INPUT_REPORT_ID below if the frontend expects WebHID-style buffers.
- * - The widget is a floating panel; it does not touch the Vue app's DOM.
+ * - A "Remote" option is injected into the app's own "Connect Type" dialog
+ *   (the Element Plus form offering USB / Serial Port), so there is no
+ *   floating panel. The dialog's existing "Connect" button drives the
+ *   connection: with Remote selected the navigator.hid proxy forwards
+ *   requestDevice() to the hidws backend.
  * ========================================================================== */
 (function () {
   'use strict';
@@ -214,7 +218,7 @@
   function setMode(mode) {
     state.mode = mode === 'remote' ? 'remote' : 'local';
     try { localStorage.setItem(CONN_MODE_KEY, state.mode); } catch (e) {}
-    if (widget) widget.refresh();
+    syncModeUI();
   }
 
   function onRemoteClosed() {
@@ -224,7 +228,7 @@
       try { h(ev); } catch (e) { console.error('[hidws] disconnect handler error:', e); }
     });
     state.disconnectHandlers = [];
-    if (widget) widget.refresh();
+    syncModeUI();
   }
 
   var hidProxy = {
@@ -251,7 +255,7 @@
         }
         if (!list.length) { setStatus('No matching remote device', 'error'); return []; }
 
-        // Prefer the device selected in the widget, else the first match.
+        // Prefer the device selected in the dialog's list, else the first match.
         var target = list[0];
         if (state.selectedVid != null) {
           for (var i = 0; i < list.length; i++) {
@@ -262,7 +266,7 @@
         return openRemoteDevice(url, target.vendorId, target.productId, onRemoteClosed).then(function (dev) {
           state.remoteDevice = dev;
           setStatus('Connected: ' + dev.productName, 'ok');
-          if (widget) widget.refresh();
+          syncModeUI();
           return [dev];
         });
       });
@@ -310,168 +314,87 @@
   }
 
   /* ------------------------------------------------------------------ *
-   * Floating widget (inspired by kt02h20-control's remote UI)
+   * Integration into the app's "Connect Type" dialog
+   * ------------------------------------------------------------------ *
+   * The Element Plus ids on the dialog body (e.g. el-id-6042-13 / el-id-6862-13)
+   * are auto-generated and change between renders, so the dialog is located
+   * robustly via its `.dialog-content` / `.radio-item` structure. A "Remote"
+   * radio item and a hidws config section (WebSocket URL + "List devices")
+   * are injected; the dialog's own "Connect" button triggers the connection
+   * through the navigator.hid proxy. No separate connect button is needed.
    * ------------------------------------------------------------------ */
-  var widget = null;
+  var dialogRoot = null;   // current .dialog-content element
+  var ui = null;           // injected elements
 
   function setStatus(text, kind) {
-    if (!widget) return;
-    var el = widget.statusEl;
-    el.textContent = text;
-    el.className = 'fh-status fh-status-' + (kind || 'idle');
+    if (!ui) return;
+    ui.statusEl.textContent = text;
+    ui.statusEl.className = 'fh-remote-status fh-status-' + (kind || 'idle');
   }
 
-  function buildWidget() {
-    var root = document.createElement('div');
-    root.id = 'fh-hidws-widget';
-    root.style.cssText = [
-      'position:fixed', 'right:12px', 'bottom:12px', 'z-index:2147483000',
-      'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif',
-      'font-size:12px', 'line-height:1.4', 'color:#e5e7eb',
-      'background:#111827', 'border:1px solid #374151', 'border-radius:10px',
-      'box-shadow:0 6px 24px rgba(0,0,0,.5)', 'overflow:hidden', 'max-width:340px',
-    ].join(';');
+  function makeElement(tag, attrs, text) {
+    var el = document.createElement(tag);
+    if (attrs) for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) el.setAttribute(k, attrs[k]);
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
 
-    /* Header / collapse toggle */
-    var head = document.createElement('div');
-    head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;cursor:pointer;background:#1f2937;user-select:none;';
-    var title = document.createElement('span');
-    title.textContent = 'FiiO Control · Remote (hidws)';
-    title.style.cssText = 'font-weight:600;font-size:12px;';
-    var toggle = document.createElement('span');
-    toggle.textContent = '▾';
-    toggle.style.cssText = 'font-size:10px;color:#9ca3af;';
-    head.appendChild(title);
-    head.appendChild(toggle);
+  function buildRemoteSection() {
+    var cfg = makeElement('div', { class: 'fh-remote-config' }, '');
+    cfg.style.display = 'none';
 
-    /* Body */
-    var body = document.createElement('div');
-    body.style.cssText = 'padding:10px 12px;display:flex;flex-direction:column;gap:8px;';
-
-    /* Mode toggle */
-    var modeRow = document.createElement('div');
-    modeRow.style.cssText = 'display:flex;gap:6px;align-items:center;';
-    var modeLabel = document.createElement('span');
-    modeLabel.textContent = 'Mode:';
-    modeLabel.style.cssText = 'color:#9ca3af;';
-    var btnUsb = mkButton('USB', 'Connect via WebHID (USB)', 'fh-mode-btn');
-    var btnRemote = mkButton('Remote', 'Connect to a remote hidws backend over WebSocket', 'fh-mode-btn');
-    modeRow.appendChild(modeLabel);
-    modeRow.appendChild(btnUsb);
-    modeRow.appendChild(btnRemote);
-
-    /* Remote config */
-    var cfg = document.createElement('div');
-    cfg.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
-    var cfgLabel = document.createElement('span');
-    cfgLabel.textContent = 'Remote backend (hidws)';
-    cfgLabel.style.cssText = 'color:#9ca3af;';
-    var urlRow = document.createElement('div');
-    urlRow.style.cssText = 'display:flex;gap:6px;';
-    var urlInput = document.createElement('input');
-    urlInput.type = 'text';
-    urlInput.spellcheck = false;
-    urlInput.placeholder = 'ws://host:9001';
+    var label = makeElement('div', { class: 'fh-remote-label' }, 'Remote backend (hidws)');
+    var urlRow = makeElement('div', { class: 'fh-remote-row' }, '');
+    var urlInput = makeElement('input', { type: 'text', class: 'fh-remote-url', spellcheck: 'false', placeholder: 'ws://host:9001' }, '');
     urlInput.value = state.url;
-    urlInput.style.cssText = 'flex:1;min-width:0;background:#0b1220;border:1px solid #374151;border-radius:6px;color:#e5e7eb;padding:5px 8px;font-size:12px;';
+    var listBtn = makeElement('button', { type: 'button', class: 'el-button el-button--primary fh-remote-list' }, 'List devices');
     urlRow.appendChild(urlInput);
-    var btnList = mkButton('List devices', 'List HID devices on the remote backend', 'fh-btn fh-btn-secondary');
-    urlRow.appendChild(btnList);
+    urlRow.appendChild(listBtn);
 
-    var selRow = document.createElement('div');
-    selRow.style.cssText = 'display:flex;gap:6px;align-items:center;';
-    var sel = document.createElement('select');
-    sel.style.cssText = 'flex:1;min-width:0;background:#0b1220;border:1px solid #374151;border-radius:6px;color:#e5e7eb;padding:5px 6px;font-size:12px;';
-    var btnConnectRemote = mkButton('Connect remote', 'Open the selected device on the remote backend', 'fh-btn fh-btn-primary');
+    var selRow = makeElement('div', { class: 'fh-remote-row' }, '');
+    var sel = makeElement('select', { class: 'fh-remote-select' }, '');
     selRow.appendChild(sel);
-    selRow.appendChild(btnConnectRemote);
 
-    var statusEl = document.createElement('div');
-    statusEl.className = 'fh-status fh-status-idle';
-    statusEl.textContent = state.mode === 'remote' ? 'Remote mode — list devices to begin.' : 'Local (WebHID) mode.';
-    statusEl.style.cssText = 'color:#9ca3af;font-size:11px;min-height:14px;word-break:break-word;';
+    var statusEl = makeElement('div', { class: 'fh-remote-status fh-status-idle' }, '');
 
-    cfg.appendChild(cfgLabel);
+    cfg.appendChild(label);
     cfg.appendChild(urlRow);
     cfg.appendChild(selRow);
-
-    body.appendChild(modeRow);
-    body.appendChild(cfg);
-    body.appendChild(statusEl);
-
-    root.appendChild(head);
-    root.appendChild(body);
-
-    /* Widget API */
-    var hidden = false;
-    var api = {
-      root: root,
-      statusEl: statusEl,
-      refresh: function () {
-        btnUsb.classList.toggle('fh-active', state.mode === 'local');
-        btnRemote.classList.toggle('fh-active', state.mode === 'remote');
-        cfg.style.display = state.mode === 'remote' ? 'flex' : 'none';
-        urlInput.value = state.url;
-        if (state.mode !== 'remote' && state.remoteDevice) setStatus('Remote disconnected.', 'idle');
-        if (state.mode === 'remote' && state.remoteDevice) setStatus('Connected: ' + state.remoteDevice.productName, 'ok');
-      },
-    };
-
-    /* Events */
-    head.addEventListener('click', function () {
-      hidden = !hidden;
-      body.style.display = hidden ? 'none' : 'flex';
-      toggle.textContent = hidden ? '▸' : '▾';
-    });
-
-    btnUsb.addEventListener('click', function () {
-      setMode('local');
-      setStatus('Local (WebHID) mode.', 'idle');
-    });
-    btnRemote.addEventListener('click', function () {
-      setMode('remote');
-      setStatus('Remote mode — list devices to begin.', 'idle');
-    });
+    cfg.appendChild(statusEl);
 
     urlInput.addEventListener('change', function () {
       var v = (urlInput.value || '').trim() || DEFAULT_REMOTE_URL;
-      state.url = v;
-      urlInput.value = v;
+      state.url = v; urlInput.value = v;
       try { localStorage.setItem(REMOTE_URL_KEY, v); } catch (e) {}
     });
 
-    btnList.addEventListener('click', async function () {
+    listBtn.addEventListener('click', async function () {
       var url = (urlInput.value || '').trim() || DEFAULT_REMOTE_URL;
       state.url = url;
       try { localStorage.setItem(REMOTE_URL_KEY, url); } catch (e) {}
       setStatus('Listing devices…', 'working');
-      btnList.disabled = true;
+      listBtn.disabled = true;
       try {
         var devices = await listRemoteDevices(url);
         state.deviceList = devices;
         sel.innerHTML = '';
         if (!devices.length) {
-          var opt = document.createElement('option');
-          opt.textContent = 'No devices found';
-          opt.value = '';
-          sel.appendChild(opt);
+          sel.appendChild(makeElement('option', {}, 'No devices found'));
           state.selectedVid = state.selectedPid = null;
           setStatus('No devices found on the backend.', 'error');
         } else {
           devices.forEach(function (d) {
-            var o = document.createElement('option');
-            o.value = d.vendorId + ':' + d.productId;
-            o.textContent = (d.productName || 'HID device') + ' (' + (d.vendorId ? '0x' + d.vendorId.toString(16) : '?') + ':' + (d.productId ? '0x' + d.productId.toString(16) : '?') + ')';
-            sel.appendChild(o);
+            sel.appendChild(makeElement('option', { value: d.vendorId + ':' + d.productId },
+              (d.productName || 'HID device') + ' (' + (d.vendorId ? '0x' + d.vendorId.toString(16) : '?') + ':' + (d.productId ? '0x' + d.productId.toString(16) : '?') + ')'));
           });
           state.selectedVid = devices[0].vendorId;
           state.selectedPid = devices[0].productId;
-          setStatus(devices.length + ' device(s) found — pick one and connect.', 'ok');
+          setStatus(devices.length + ' device(s) found — pick one and press Connect.', 'ok');
         }
       } catch (err) {
         setStatus('List failed: ' + err.message, 'error');
       } finally {
-        btnList.disabled = false;
+        listBtn.disabled = false;
       }
     });
 
@@ -481,70 +404,132 @@
       state.selectedPid = parts[1] !== undefined && parts[1] !== '' ? Number(parts[1]) : null;
     });
 
-    btnConnectRemote.addEventListener('click', async function () {
-      var url = (urlInput.value || '').trim() || DEFAULT_REMOTE_URL;
-      state.url = url;
-      try { localStorage.setItem(REMOTE_URL_KEY, url); } catch (e) {}
-      if (state.selectedVid == null) { setStatus('Select a device first.', 'error'); return; }
-      setStatus('Connecting…', 'working');
-      btnConnectRemote.disabled = true;
-      try {
-        var dev = await openRemoteDevice(url, state.selectedVid, state.selectedPid, onRemoteClosed);
-        state.remoteDevice = dev;
-        setStatus('Connected: ' + dev.productName, 'ok');
-        if (widget) widget.refresh();
-      } catch (err) {
-        setStatus('Connect failed: ' + err.message, 'error');
-      } finally {
-        btnConnectRemote.disabled = false;
-      }
+    return { cfg: cfg, urlInput: urlInput, listBtn: listBtn, sel: sel, statusEl: statusEl };
+  }
+
+  function injectDialog(content) {
+    dialogRoot = content;
+
+    // --- "Remote" radio item (mirrors the native el-radio items) ---
+    var radioItem = makeElement('div', { class: 'radio-item fh-radio-item' }, '');
+    var label = makeElement('label', { class: 'el-radio el-radio--large fh-remote-radio' }, '');
+    var input = makeElement('input', { type: 'radio', class: 'el-radio__original fh-remote-original', name: 'fh-remote-mode', value: '2' }, '');
+    var inner = makeElement('span', { class: 'el-radio__inner' }, '');
+    var labelWrap = makeElement('span', { class: 'el-radio__label' }, '');
+    var textSpan = makeElement('span', { class: 'el-text connect-radio-label' }, 'Remote');
+    labelWrap.appendChild(textSpan);
+    label.appendChild(input);
+    label.appendChild(inner);
+    label.appendChild(labelWrap);
+    radioItem.appendChild(label);
+    var desc = makeElement('div', { class: 'dialog-content-desc fh-remote-desc' }, 'Remote backend (hidws) over WebSocket');
+    radioItem.appendChild(desc);
+
+    // --- hidws config section ---
+    var parts = buildRemoteSection();
+
+    content.appendChild(radioItem);
+    content.appendChild(parts.cfg);
+
+    ui = {
+      radioItem: radioItem,
+      radioInput: input,
+      radioLabel: label,
+      cfg: parts.cfg,
+      urlInput: parts.urlInput,
+      listBtn: parts.listBtn,
+      sel: parts.sel,
+      statusEl: parts.statusEl,
+    };
+
+    // --- Click handling (delegated on the dialog content) ---
+    content.addEventListener('click', function (e) {
+      var item = e.target && e.target.closest ? e.target.closest('.radio-item') : null;
+      if (!item) return;
+      if (item.classList.contains('fh-radio-item')) setMode('remote');
+      else setMode('local');
+      syncModeUI();
     });
 
-    return api;
+    syncModeUI();
   }
 
-  function mkButton(text, title, cls) {
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = text;
-    b.title = title;
-    b.className = cls || 'fh-btn';
-    b.style.cssText = 'border:none;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;color:#e5e7eb;';
-    return b;
+  // Keep the app's connectType on HID (0 = USB) while Remote is selected, so
+  // the dialog's "Connect" button routes through navigator.hid -> our proxy.
+  function ensureHidPath() {
+    if (!dialogRoot) return;
+    var usb = dialogRoot.querySelector('.el-radio__original[value="0"]');
+    if (usb && !usb.checked) {
+      usb.checked = true;
+      // Sync Vue's v-model. Our own click handler only listens to 'click', so
+      // this synthetic 'change' cannot flip the mode back to local.
+      usb.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   }
 
-  /* Styling for mode/primary/secondary buttons */
+  function syncModeUI() {
+    if (!ui) return;
+    var remote = state.mode === 'remote';
+    ui.radioInput.checked = remote;
+    ui.radioLabel.classList.toggle('is-checked', remote);
+    ui.cfg.style.display = remote ? 'block' : 'none';
+    ui.urlInput.value = state.url;
+    if (dialogRoot) dialogRoot.classList.toggle('fh-remote-active', remote);
+    if (remote) ensureHidPath();
+  }
+
+  // Watch for the Connect Type dialog appearing / being re-created.
+  var observer = new MutationObserver(function () {
+    var content = document.querySelector('.el-dialog .dialog-content');
+    if (!content) {
+      dialogRoot = null;
+      ui = null;
+      return;
+    }
+    if (content !== dialogRoot || !content.querySelector('.fh-remote-config')) {
+      injectDialog(content);
+    } else {
+      syncModeUI();
+    }
+  });
+
+  /* Styling for the injected elements (matches the Element Plus look) */
   var style = document.createElement('style');
   style.textContent = [
-    '#fh-hidws-widget button:disabled { opacity:.5; cursor:default; }',
-    '#fh-hidws-widget .fh-mode-btn { background:#1f2937; border:1px solid #374151; color:#9ca3af; }',
-    '#fh-hidws-widget .fh-mode-btn.fh-active { background:#2563eb; border-color:#2563eb; color:#fff; }',
-    '#fh-hidws-widget .fh-btn-primary { background:#2563eb; color:#fff; }',
-    '#fh-hidws-widget .fh-btn-secondary { background:#374151; color:#e5e7eb; }',
-    '#fh-hidws-widget .fh-status-working { color:#fbbf24; }',
-    '#fh-hidws-widget .fh-status-ok { color:#34d399; }',
-    '#fh-hidws-widget .fh-status-error { color:#f87171; }',
+    '.el-dialog .dialog-content .fh-radio-item { cursor:pointer; }',
+    '.el-dialog .dialog-content.fh-remote-active .radio-item:not(.fh-radio-item) { opacity:.45; }',
+    '.fh-remote-config { margin-top:10px; padding:10px; border:1px solid rgba(128,128,128,.25); border-radius:8px; display:flex; flex-direction:column; gap:8px; }',
+    '.fh-remote-label { font-size:13px; color:var(--el-text-color-secondary, #909399); }',
+    '.fh-remote-row { display:flex; gap:8px; align-items:center; }',
+    '.fh-remote-url { flex:1; min-width:0; height:32px; border:1px solid var(--el-border-color, #dcdfe6); border-radius:6px; background:var(--el-fill-color-blank, #fff); color:var(--el-text-color-primary, #303133); padding:0 10px; font-size:13px; }',
+    '.fh-remote-select { flex:1; min-width:0; height:32px; border:1px solid var(--el-border-color, #dcdfe6); border-radius:6px; background:var(--el-fill-color-blank, #fff); color:var(--el-text-color-primary, #303133); padding:0 8px; font-size:13px; }',
+    '.fh-remote-list { margin-left:auto; }',
+    '.fh-remote-status { font-size:12px; min-height:14px; word-break:break-word; color:var(--el-text-color-secondary, #909399); }',
+    '.fh-remote-status.fh-status-working { color:#e6a23c; }',
+    '.fh-remote-status.fh-status-ok { color:#67c23a; }',
+    '.fh-remote-status.fh-status-error { color:#f56c6c; }',
   ].join('\n');
   document.head.appendChild(style);
 
   // Install proxy BEFORE the app bundle runs.
   installProxy();
 
-  // Mount the widget once the DOM is ready (this script runs from <head>,
-  // before <body> exists).
-  function mountWidget() {
-    if (!document.body) { requestAnimationFrame(mountWidget); return; }
-    if (widget) return;
-    widget = buildWidget();
-    document.body.appendChild(widget.root);
-    widget.refresh();
+  // Watch for the dialog (this script runs from <head>, before <body> exists).
+  var started = false;
+  function startObserver() {
+    if (started) return;
+    if (!document.body) { setTimeout(startObserver, 50); return; }
+    started = true;
+    observer.observe(document.body, { childList: true, subtree: true });
+    var initial = document.querySelector('.el-dialog .dialog-content');
+    if (initial) injectDialog(initial);
   }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mountWidget);
+    document.addEventListener('DOMContentLoaded', startObserver);
   } else {
-    mountWidget();
+    startObserver();
   }
 
   // Expose a small debug handle.
-  window.__fiioHidws = { state: state, hidProxy: hidProxy, listRemoteDevices: listRemoteDevices, openRemoteDevice: openRemoteDevice };
+  window.__fiioHidws = { state: state, hidProxy: hidProxy, listRemoteDevices: listRemoteDevices, openRemoteDevice: openRemoteDevice, syncModeUI: syncModeUI };
 })();
