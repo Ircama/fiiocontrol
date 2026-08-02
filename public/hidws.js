@@ -497,6 +497,40 @@
     }
   });
 
+  /* --- auto-eq: eq-panel toggleable overlay --- */
+  var EQ_PANEL_KEY = 'fiio_eqpanel_open';
+  function eqPanelState() { try { return localStorage.getItem(EQ_PANEL_KEY) === '1'; } catch (e) { return false; } }
+  function setEqPanelState(open) { try { localStorage.setItem(EQ_PANEL_KEY, open ? '1' : '0'); } catch (e) {} }
+  function updateEqPanelToggle(btn, open) {
+    if (!btn) return;
+    btn.textContent = open ? '\u2715 Close panel' : '\u2699 EQ panel';
+    btn.title = open ? 'Close the EQ settings panel' : 'Open the EQ settings panel as an overlay';
+  }
+  function ensureEqPanelUI() {
+    var panel = document.getElementById('eq-panel');
+    var btn = document.getElementById('fh-eqpanel-toggle');
+    if (!panel) {
+      if (btn) btn.style.display = 'none';
+      return;
+    }
+    var open = eqPanelState();
+    panel.classList.toggle('fh-eqpanel-hidden', !open);
+    if (!btn) {
+      btn = makeElement('button', { type: 'button', id: 'fh-eqpanel-toggle' }, '');
+      btn.addEventListener('click', function () {
+        var p = document.getElementById('eq-panel');
+        var now = !eqPanelState();
+        setEqPanelState(now);
+        if (p) p.classList.toggle('fh-eqpanel-hidden', !now);
+        updateEqPanelToggle(btn, now);
+      });
+      document.body.appendChild(btn);
+    }
+    btn.style.display = 'inline-flex';
+    updateEqPanelToggle(btn, open);
+  }
+  var eqPanelObserver = new MutationObserver(function () { ensureEqPanelUI(); });
+
   /* Styling for the injected elements (matches the Element Plus look) */
   var style = document.createElement('style');
   style.textContent = [
@@ -514,6 +548,12 @@
     '.fh-remote-status.fh-status-working { color:#e6a23c; }',
     '.fh-remote-status.fh-status-ok { color:#67c23a; }',
     '.fh-remote-status.fh-status-error { color:#f56c6c; }',
+    // --- auto-eq: eq-panel as a toggleable opaque overlay (theme colors) ---
+    '#eq-panel { position:fixed !important; top:92px !important; right:12px !important; left:auto !important; width:min(440px, calc(100vw - 24px)) !important; max-height:calc(100vh - 104px) !important; overflow-y:auto !important; z-index:3000 !important; background:var(--el-bg-color-overlay, var(--el-bg-color, #141414)) !important; color:var(--el-text-color-primary, #E5EAF3) !important; border:1px solid var(--el-border-color, #4C4D4F) !important; border-radius:10px !important; box-shadow:0 8px 24px rgba(0,0,0,.35) !important; padding:12px !important; opacity:1 !important; }',
+    '#eq-panel.fh-eqpanel-hidden { display:none !important; }',
+    '#fh-eqpanel-toggle { position:fixed !important; top:48px !important; right:12px !important; z-index:3001 !important; display:inline-flex !important; align-items:center !important; gap:6px !important; padding:7px 13px !important; font:600 13px/1 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif !important; color:var(--el-color-white, #fff) !important; background:var(--el-color-primary, #c8102e) !important; border:none !important; border-radius:8px !important; cursor:pointer !important; box-shadow:var(--el-box-shadow-lighter, 0 2px 10px rgba(0,0,0,.3)) !important; user-select:none !important; }',
+    '#fh-eqpanel-toggle:hover { filter:brightness(1.08) !important; }',
+    '#fh-eqpanel-toggle:active { transform:translateY(1px) !important; }',
   ].join('\n');
   document.head.appendChild(style);
 
@@ -527,8 +567,10 @@
     if (!document.body) { setTimeout(startObserver, 50); return; }
     started = true;
     observer.observe(document.body, { childList: true, subtree: true });
+    eqPanelObserver.observe(document.body, { childList: true, subtree: true });
     var initial = document.querySelector('.el-dialog .dialog-content');
     if (initial) injectDialog(initial);
+    ensureEqPanelUI();
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', startObserver);
