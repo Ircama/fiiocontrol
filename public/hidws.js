@@ -510,11 +510,14 @@
     var panel = document.getElementById('eq-panel');
     var btn = document.getElementById('fh-eqpanel-toggle');
     if (!panel) {
-      if (btn) btn.style.display = 'none';
+      if (btn && btn.style.display !== 'none') btn.style.display = 'none';
       return;
     }
     var open = eqPanelState();
-    panel.classList.toggle('fh-eqpanel-hidden', !open);
+    var hide = !open;
+    if (panel.classList.contains('fh-eqpanel-hidden') !== hide) {
+      panel.classList.toggle('fh-eqpanel-hidden', hide);
+    }
     if (!btn) {
       btn = makeElement('button', { type: 'button', id: 'fh-eqpanel-toggle' }, '');
       btn.addEventListener('click', function () {
@@ -526,8 +529,12 @@
       });
       document.body.appendChild(btn);
     }
-    btn.style.display = 'inline-flex';
-    updateEqPanelToggle(btn, open);
+    if (btn.style.display !== 'inline-flex') btn.style.display = 'inline-flex';
+    var label = open ? '\u2715 Close panel' : '\u2699 EQ panel';
+    if (btn.textContent !== label) {
+      btn.textContent = label;
+      btn.title = open ? 'Close the EQ settings panel' : 'Open the EQ settings panel as an overlay';
+    }
   }
   var eqPanelObserver = new MutationObserver(function () { ensureEqPanelUI(); });
 
@@ -550,7 +557,7 @@
     '.fh-remote-status.fh-status-error { color:#f56c6c; }',
     // --- auto-eq: eq-panel as a toggleable opaque overlay (theme colors) ---
     '#eq-panel { position:fixed !important; top:92px !important; right:12px !important; left:auto !important; width:min(440px, calc(100vw - 24px)) !important; max-height:calc(100vh - 104px) !important; overflow-y:auto !important; z-index:3000 !important; background:var(--el-bg-color-overlay, var(--el-bg-color, #141414)) !important; color:var(--el-text-color-primary, #E5EAF3) !important; border:1px solid var(--el-border-color, #4C4D4F) !important; border-radius:10px !important; box-shadow:0 8px 24px rgba(0,0,0,.35) !important; padding:12px !important; opacity:1 !important; }',
-    '#eq-panel.fh-eqpanel-hidden { display:none !important; }',
+    '#eq-panel.fh-eqpanel-hidden { visibility:hidden !important; opacity:0 !important; pointer-events:none !important; }',
     '#fh-eqpanel-toggle { position:fixed !important; top:48px !important; right:12px !important; z-index:3001 !important; display:inline-flex !important; align-items:center !important; gap:6px !important; padding:7px 13px !important; font:600 13px/1 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif !important; color:var(--el-color-white, #fff) !important; background:var(--el-color-primary, #c8102e) !important; border:none !important; border-radius:8px !important; cursor:pointer !important; box-shadow:var(--el-box-shadow-lighter, 0 2px 10px rgba(0,0,0,.3)) !important; user-select:none !important; }',
     '#fh-eqpanel-toggle:hover { filter:brightness(1.08) !important; }',
     '#fh-eqpanel-toggle:active { transform:translateY(1px) !important; }',
