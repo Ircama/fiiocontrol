@@ -135,27 +135,6 @@ as the default backend for everything "Personal":
 - **Shared presets** → `__fiioLocal.getSharePeq()`
 - **Avatar / user info** → `__fiioLocal.getUserInfo()` (local user "Local")
 
-The bundled API functions in `public/static/js/index-WZB3nC8k.js` are patched
-(surgical string patches, same technique as the router-base and eq-bands-card
-patches) to route through `window.__fiioLocal` whenever local mode is active:
-
-| Function  | Endpoint            | Local backend  |
-|-----------|---------------------|----------------|
-| `xj`      | `/get-peq`          | `getPeq()`     |
-| `Cj`      | `/update-peq`       | `updatePeq()`  |
-| `Kit`     | `/get-share-peq`    | `getSharePeq()`|
-| `Yit`     | `/delete-peq`       | `deletePeq()`  |
-| `jit`     | `/set-peq-isshare`  | `setPeqIsshare()` |
-| `DMe`     | `/add-peq`          | `addPeq()`     |
-
-plus the user store getters `isLogged()` / `getUserName()` and the
-`getUserInfo()` action, so the avatar (`el-avatar el-avatar--circle`) shows the
-**local user by default** instead of forcing the login dialog.
-
-**Local mode is the default.** To go back to the remote portal, set
-`localStorage "fiio_use_local"` to `"0"` (or call
-`window.__fiioLocal.setLocal(false)` in the console).
-
 The local presets database lives under `localStorage "fiio_local_personal"`
 (a JSON array) using the same item model as the remote portal
 (`id`, `styleName`, `description`, `userId`, `customOrNot`, `shareOrNot`,
