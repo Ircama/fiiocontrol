@@ -121,9 +121,49 @@ converts it into a **toggleable, 100%-opaque overlay**:
   `display:none` zero-sizes the slider content the app observes with
   `ResizeObserver`, which caused an infinite feedback loop that froze the page.
 
+## Local storage (personal presets without login)
+
+[`public/localstorage.js`](public/localstorage.js) removes the app's
+dependency on the remote portal (`https://fiiocontrol.fiio.com`) for its
+application features by providing a **local database** (browser `localStorage`)
+as the default backend for everything "Personal":
+
+- **"Save to Personal"** → `__fiioLocal.addPeq()`
+- **"Override data to Personal"** → `__fiioLocal.updatePeq()`
+- **`/equalizer/personal` list** → `__fiioLocal.getPeq()`
+- **Delete / Share** → `__fiioLocal.deletePeq()` / `__fiioLocal.setPeqIsshare()`
+- **Shared presets** → `__fiioLocal.getSharePeq()`
+- **Avatar / user info** → `__fiioLocal.getUserInfo()` (local user "Local")
+
+The bundled API functions in `public/static/js/index-WZB3nC8k.js` are patched
+(surgical string patches, same technique as the router-base and eq-bands-card
+patches) to route through `window.__fiioLocal` whenever local mode is active:
+
+| Function  | Endpoint            | Local backend  |
+|-----------|---------------------|----------------|
+| `xj`      | `/get-peq`          | `getPeq()`     |
+| `Cj`      | `/update-peq`       | `updatePeq()`  |
+| `Kit`     | `/get-share-peq`    | `getSharePeq()`|
+| `Yit`     | `/delete-peq`       | `deletePeq()`  |
+| `jit`     | `/set-peq-isshare`  | `setPeqIsshare()` |
+| `DMe`     | `/add-peq`          | `addPeq()`     |
+
+plus the user store getters `isLogged()` / `getUserName()` and the
+`getUserInfo()` action, so the avatar (`el-avatar el-avatar--circle`) shows the
+**local user by default** instead of forcing the login dialog.
+
+**Local mode is the default.** To go back to the remote portal, set
+`localStorage "fiio_use_local"` to `"0"` (or call
+`window.__fiioLocal.setLocal(false)` in the console).
+
+The local presets database lives under `localStorage "fiio_local_personal"`
+(a JSON array) using the same item model as the remote portal
+(`id`, `styleName`, `description`, `userId`, `customOrNot`, `shareOrNot`,
+`deviceType`, `masterGain`, `eqParamsJson`).
+
 ## Notes
 
-- **No Fiio backend**: the original app talks to `fiiocontrol.fiio.com` API endpoints (login, cloud presets, etc.). Those calls are not available offline and will fail gracefully; local-device (WebHID) features do not depend on them.
+- **No Fiio backend**: the original app talks to `fiiocontrol.fiio.com` API endpoints (login, cloud presets, etc.). Those calls are not available offline and will fail gracefully; local-device (WebHID) features do not depend on them. Personal presets work offline through the [local storage](#local-storage-personal-presets-without-login) backend (the default); the remote portal login remains available as an option when `fiio_use_local` is `"0"`.
 - **WebHID**: a WebHID-capable browser (Chrome / Edge / Opera) and a connected FiiO device are required for device control.
 - Navigating straight to a deep route redirects to the **Welcome** screen — that is the original app's "connect your device first" flow.
 
